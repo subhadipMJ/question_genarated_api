@@ -275,10 +275,9 @@ def build_omr_sheet_flowables(
     left_w = printable_width * 0.58
     right_w = printable_width - left_w
 
-    roll_boxes_html = "".join(["&nbsp;&nbsp;[ &nbsp; ]" for _ in range(8)])
-    student_details_text = f"""
+    student_details_text = """
     <b>CANDIDATE NAME:</b> __________________________________________________<br/><br/>
-    <b>ROLL / ENROLLMENT NO:</b> &nbsp; {roll_boxes_html}<br/><br/>
+    <b>ROLL / ENROLLMENT NO:</b> ___________________________<br/><br/>
     <b>BATCH / CLASS:</b> ___________________________ &nbsp;&nbsp;&nbsp;&nbsp; <b>DATE:</b> ____ / ____ / ________
     """
     p_student = Paragraph(student_details_text, inst_bold_style)
