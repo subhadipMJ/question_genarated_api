@@ -164,7 +164,18 @@ class OrganizationController:
                 .first()
                 is not None
             )
-            if not is_admin_member:
+            is_teacher_member_adding_student = (
+                actor_role == 2
+                and data.role == 3
+                and db.query(OrganizationUser)
+                .filter(
+                    OrganizationUser.org_id == organization_id,
+                    OrganizationUser.user_id == actor_user_id,
+                )
+                .first()
+                is not None
+            )
+            if not is_admin_member and not is_teacher_member_adding_student:
                 raise OrganizationUserPermissionError
 
         user = User(

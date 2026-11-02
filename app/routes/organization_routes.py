@@ -78,7 +78,7 @@ def add_organization_user(
     except OrganizationUserPermissionError:
         raise HTTPException(
             status_code=403,
-            detail="Only this organization's admin or a superadmin can add users",
+            detail="Only an organization admin, superadmin, or teacher adding a student can perform this action",
         ) from None
     except OrganizationAdminEmailExistsError:
         raise HTTPException(status_code=409, detail="User email already exists") from None
