@@ -33,6 +33,7 @@ from reportlab.platypus import (
     HRFlowable,
 )
 from reportlab.pdfgen import canvas
+from reportlab.graphics.shapes import Drawing, Circle, String, Rect
 from PIL import Image as PILImage
 
 from app.config import settings
@@ -177,11 +178,233 @@ def format_duration_str(seconds: int | None) -> str:
     return f"{m} Minutes"
 
 
+def make_bubble(letter: str, filled: bool = False, size: float = 10.5) -> Drawing:
+    """Creates a printable OMR bubble circle flowable with a centered letter label."""
+    r = size / 2.0
+    d = Drawing(size, size)
+    c = Circle(r, r, r - 0.5)
+    c.strokeColor = colors.HexColor("#222222")
+    c.strokeWidth = 0.7
+    if filled:
+        c.fillColor = colors.HexColor("#222222")
+    else:
+        c.fillColor = colors.white
+    d.add(c)
+    if not filled:
+        s = String(r, r - 2.0, letter, textAnchor="middle")
+        s.fontName = "Helvetica-Bold"
+        s.fontSize = 5.2
+        s.fillColor = colors.HexColor("#333333")
+        d.add(s)
+    return d
+
+
+def build_omr_sheet_flowables(
+    test_series: Any,
+    series_questions: list[Any],
+    organization: Any = None,
+    printable_width: float = 182 * mm,
+) -> list[Any]:
+    """
+    Constructs an A4 OMR response sheet with candidate details, bubbling instructions,
+    and a multi-column bubble grid matching the test series questions.
+    """
+    flowables: list[Any] = []
+    styles = getSampleStyleSheet()
+
+    omr_title_style = ParagraphStyle(
+        "OMRTitle",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=11,
+        leading=13,
+        alignment=TA_CENTER,
+        textColor=colors.white,
+    )
+    omr_sub_style = ParagraphStyle(
+        "OMRSub",
+        parent=styles["Normal"],
+        fontName="Times-Bold",
+        fontSize=10,
+        leading=12,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#111111"),
+    )
+    inst_bold_style = ParagraphStyle(
+        "OMRInstBold",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=7,
+        leading=8.5,
+        textColor=colors.black,
+    )
+    inst_style = ParagraphStyle(
+        "OMRInst",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=6.5,
+        leading=8.0,
+        textColor=colors.HexColor("#333333"),
+    )
+
+    # 1. Header Banner
+    series_name = getattr(test_series, "name", "Examination")
+    org_name = getattr(organization, "name", "") if organization else ""
+    header_parts = []
+    if org_name:
+        header_parts.append(str(org_name).upper())
+    header_parts.append(str(series_name).upper())
+    flowables.append(Paragraph("<br/>".join(header_parts), omr_sub_style))
+    flowables.append(Spacer(1, 1.5 * mm))
+
+    banner_data = [[Paragraph("<b>OMR RESPONSE SHEET / ANSWER SHEET</b>", omr_title_style)]]
+    banner_table = Table(banner_data, colWidths=[printable_width])
+    banner_table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#1e293b")),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 1.8 * mm),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 1.8 * mm),
+        ])
+    )
+    flowables.append(banner_table)
+    flowables.append(Spacer(1, 2 * mm))
+
+    # 2. Candidate Info & Instructions Table
+    left_w = printable_width * 0.58
+    right_w = printable_width - left_w
+
+    roll_boxes_html = "".join(["&nbsp;&nbsp;[ &nbsp; ]" for _ in range(8)])
+    student_details_text = f"""
+    <b>CANDIDATE NAME:</b> __________________________________________________<br/><br/>
+    <b>ROLL / ENROLLMENT NO:</b> &nbsp; {roll_boxes_html}<br/><br/>
+    <b>BATCH / CLASS:</b> ___________________________ &nbsp;&nbsp;&nbsp;&nbsp; <b>DATE:</b> ____ / ____ / ________
+    """
+    p_student = Paragraph(student_details_text, inst_bold_style)
+
+    instructions_text = """
+    <b>HOW TO FILL THE OMR SHEET:</b><br/>
+    • Use <b>BLUE or BLACK</b> ballpoint pen only.<br/>
+    • Darken circles completely: <b>(A) &nbsp; ● &nbsp; (C) &nbsp; (D)</b><br/>
+    • Do NOT use pencil, tick (✓), or cross (✗).<br/>
+    • Do not fold or make any stray marks on this sheet.
+    """
+    p_inst = Paragraph(instructions_text, inst_style)
+
+    info_table = Table([[p_student, p_inst]], colWidths=[left_w, right_w])
+    info_table.setStyle(
+        TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#1e293b")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
+            ("TOPPADDING", (0, 0), (-1, -1), 2 * mm),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2 * mm),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2.5 * mm),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2.5 * mm),
+            ("BACKGROUND", (1, 0), (1, 0), colors.HexColor("#f8fafc")),
+        ])
+    )
+    flowables.append(info_table)
+    flowables.append(Spacer(1, 3 * mm))
+
+    # 3. Bubble Grid Table
+    total_q = max(len(series_questions), 20)
+    if total_q <= 30:
+        num_cols = 2
+    elif total_q <= 60:
+        num_cols = 3
+    else:
+        num_cols = 4
+
+    q_per_col = (total_q + num_cols - 1) // num_cols
+    col_tables = []
+    col_w = printable_width / num_cols
+    sub_col_widths = [col_w * 0.22, col_w * 0.195, col_w * 0.195, col_w * 0.195, col_w * 0.195]
+
+    for c_idx in range(num_cols):
+        start_q = c_idx * q_per_col + 1
+        rows: list[list[Any]] = [
+            ["Q#", "A", "B", "C", "D"]
+        ]
+        row_styles = [
+            ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 6.5),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#cbd5e1")),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#334155")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("TOPPADDING", (0, 0), (-1, -1), 0.8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0.8),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ]
+
+        row_idx = 1
+        for q_num in range(start_q, (c_idx + 1) * q_per_col + 1):
+            if q_num <= total_q:
+                q_label = str(q_num)
+                rows.append([
+                    q_label,
+                    make_bubble("A"),
+                    make_bubble("B"),
+                    make_bubble("C"),
+                    make_bubble("D"),
+                ])
+                if q_num % 5 == 0:
+                    row_styles.append(("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#f1f5f9")))
+            else:
+                rows.append(["", "", "", "", ""])
+            row_idx += 1
+
+        t = Table(rows, colWidths=sub_col_widths)
+        t.setStyle(TableStyle(row_styles))
+        col_tables.append(t)
+
+    grid_table = Table([col_tables], colWidths=[col_w] * num_cols)
+    grid_table.setStyle(
+        TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 1 * mm),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 1 * mm),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ])
+    )
+    flowables.append(grid_table)
+    flowables.append(Spacer(1, 3 * mm))
+
+    # 4. Signatures Box
+    sig_data = [
+        [
+            Paragraph("<b>Candidate's Signature:</b> ___________________________", inst_bold_style),
+            Paragraph("<b>Invigilator's Signature:</b> ___________________________", inst_bold_style),
+        ]
+    ]
+    sig_table = Table(sig_data, colWidths=[printable_width * 0.5, printable_width * 0.5])
+    sig_table.setStyle(
+        TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#94a3b8")),
+            ("TOPPADDING", (0, 0), (-1, -1), 2.5 * mm),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5 * mm),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3 * mm),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3 * mm),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fafafa")),
+        ])
+    )
+    flowables.append(sig_table)
+
+    return flowables
+
+
 def generate_question_paper_pdf_bytes(
     test_series: Any,
     series_questions: list[Any],
     organization: Any = None,
     include_answers: bool = False,
+    include_omr: bool = False,
     columns: int = 1,
     font_size: str = "normal",
     show_candidate_box: bool = True,
@@ -190,7 +413,8 @@ def generate_question_paper_pdf_bytes(
 ) -> bytes:
     """
     Builds and returns a complete, printable physical question paper in A4 PDF bytes.
-    Supports 1-column or 2-column layout, font size scaling, and header section toggles.
+    Supports 1-column or 2-column layout, font size scaling, header section toggles,
+    and optional appended OMR response sheet.
     """
     buffer = io.BytesIO()
 
@@ -706,6 +930,18 @@ def generate_question_paper_pdf_bytes(
         if key_flowables:
             story.append(KeepTogether(key_flowables))
         story.append(KeepTogether(end_flowables))
+
+        if include_omr:
+            story.append(PageBreak())
+            story.extend(
+                build_omr_sheet_flowables(
+                    test_series=test_series,
+                    series_questions=series_questions,
+                    organization=organization,
+                    printable_width=printable_width,
+                )
+            )
+
         doc.build(story, canvasmaker=canvas_factory)
 
     else:
@@ -844,9 +1080,35 @@ def generate_question_paper_pdf_bytes(
             doc.addPageTemplates([later_template])
             story = list(question_flowables)
 
+        omr_frame = Frame(
+            margin,
+            margin,
+            printable_width,
+            usable_h,
+            id="omr_frame",
+            leftPadding=0,
+            rightPadding=0,
+            topPadding=0,
+            bottomPadding=0,
+        )
+        omr_template = PageTemplate(id="OMRPage", frames=[omr_frame])
+        doc.addPageTemplates([omr_template])
+
         if key_flowables:
             story.append(KeepTogether(key_flowables))
         story.append(KeepTogether(end_flowables))
+
+        if include_omr:
+            story.append(NextPageTemplate("OMRPage"))
+            story.append(PageBreak())
+            story.extend(
+                build_omr_sheet_flowables(
+                    test_series=test_series,
+                    series_questions=series_questions,
+                    organization=organization,
+                    printable_width=printable_width,
+                )
+            )
 
         doc.build(story, canvasmaker=canvas_factory)
 

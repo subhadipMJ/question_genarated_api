@@ -1168,6 +1168,7 @@ class TestSeriesController:
         user_role: int,
         db: Session,
         include_answers: bool = False,
+        include_omr: bool = False,
         columns: int = 1,
         font_size: str = "normal",
         show_candidate_box: bool = True,
@@ -1211,6 +1212,7 @@ class TestSeriesController:
             series_questions=series_questions,
             organization=org,
             include_answers=include_answers,
+            include_omr=include_omr,
             columns=columns,
             font_size=font_size,
             show_candidate_box=show_candidate_box,
@@ -1224,6 +1226,8 @@ class TestSeriesController:
             suffix_parts.append("2col")
         if include_answers:
             suffix_parts.append("with_answers")
+        if include_omr:
+            suffix_parts.append("with_omr")
         suffix = f"_{'_'.join(suffix_parts)}" if suffix_parts else ""
         filename = f"{clean_title}{suffix}_question_paper.pdf"
         return pdf_bytes, filename

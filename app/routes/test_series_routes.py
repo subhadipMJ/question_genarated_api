@@ -163,6 +163,8 @@ def get_test_series_question_paper_pdf(
     request: Request,
     include_answers: bool = False,
     show_answer_key: bool | None = None,
+    include_omr: bool = False,
+    show_omr: bool | None = None,
     columns: int = 1,
     font_size: str = "normal",
     fontSize: str | None = None,
@@ -176,6 +178,7 @@ def get_test_series_question_paper_pdf(
 ):
     try:
         final_include_answers = show_answer_key if show_answer_key is not None else include_answers
+        final_include_omr = show_omr if show_omr is not None else include_omr
         final_font_size = fontSize if fontSize is not None else font_size
         final_show_candidate_box = showCandidateBox if showCandidateBox is not None else show_candidate_box
         final_show_instructions = showInstructions if showInstructions is not None else show_instructions
@@ -188,6 +191,7 @@ def get_test_series_question_paper_pdf(
             user_role=request.state.user_role,
             db=db,
             include_answers=final_include_answers,
+            include_omr=final_include_omr,
             columns=final_columns,
             font_size=final_font_size,
             show_candidate_box=final_show_candidate_box,
